@@ -1,0 +1,1193 @@
+<!doctype html>
+<html ng-app="App" ng-controller="Analyzer">
+<head>
+    <meta charset="utf-8">
+    <title>MPEG-TS Analyzer</title>
+
+    <link lazy-href="//netdna.bootstrapcdn.com/bootstrap/3.1.1/css/bootstrap.min.css" />
+    <link lazy-href="//netdna.bootstrapcdn.com/font-awesome/4.0.3/css/font-awesome.min.css" />
+
+    <style type="text/css">
+html, body { height: 100%; }
+a:not([href]) { cursor: pointer; }
+.analyze-nav { padding: 10px 15px; }
+.analyze-nav td { white-space: nowrap; padding: 0 15px; }
+
+.caret { position: relative; top: -2px; }
+.wrap { min-height: 100%; }
+.content { overflow: visible; padding-top: 10px; padding-bottom: 25px; }
+.footer { position: relative; clear: both; height: 20px; margin-top: -20px; }
+.footer>span { font-size: 85%; bottom: 0; color: #bbb; }
+.footer>.version { position: absolute; right: 15px; }
+
+.dropdown { display: none; position: absolute; z-index: 9000; }
+.dropdown.open { display: inherit; }
+
+.fav-list .list-group { top: auto; left: 15px; right: 15px; margin-top: 1px; }
+.fav-list .list-group-item .fav-delete { position: absolute; right: 10px; }
+
+.stream-info>div { margin-bottom: 10px; border: 1px solid #e1e1e8; -webkit-border-radius: 4px; -moz-border-radius: 4px; border-radius: 4px; }
+.stream-info .program-header, .stream-info .es-header { border-bottom: 1px solid #e1e1e8; padding: 3px 5px; }
+.stream-info .program-header { padding-left: 25px; background: #e1e1e8; cursor: pointer; font-weight: bold; }
+.stream-info .es-header { border-top: 1px solid #e1e1e8; }
+.stream-info .program-info .row>div { padding: 3px 20px; }
+.stream-info .program-info .row>div:first-child { text-align: right; font-weight: bold; }
+
+.stream-info .program-header.on-air { background: #dff0d8; }
+.stream-info .es-header .on-air { color: #3c763d; }
+.stream-info .program-header.stream-error { background: #f2dede; }
+.stream-info .es-header .stream-error { color: #a94442; }
+
+.analyze-loading { position: absolute; z-index: 10000; top: 0; right: 0; bottom: 0; left: 0; padding: 20px; background: #ffffff; }
+.analyze-alert { position: absolute; z-index: 9999; left: 50%; margin-left: -300px; }
+
+.options-box { position: absolute; z-index: 9000; left: 50%; margin-left: -300px; display: none; }
+.options-box.open { display: inherit; }
+.options-box .checkbox { margin-bottom: 5px; }
+.options-box .options-group>div { padding-left: 5px; padding-right: 5px; }
+.options-box .options-group>div:first-child { padding-left: 15px; }
+.options-box .options-group>div:last-child { padding-right: 15px; }
+    </style>
+</head>
+<body>
+<div class="analyze-loading" ng-hide="ready">Loading...</div>
+
+<div class="analyze-alert" ng-show="analyze.error"><div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Error</h4></div>
+    <div class="modal-body">{{ analyze.error }}</div>
+</div></div></div>
+
+<div class="analyze-alert" ng-show="analyze.info"><div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">Warning</h4></div>
+    <div class="modal-body">{{ analyze.info }}</div>
+    <div class="modal-footer"><button class="btn btn-primary" style="width: 100px;" ng-click="analyze.info=null">Ok</button></div>
+</div></div></div>
+
+<div class="options-box" modal="http"><div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">HTTP Options</h4></div>
+    <div class="modal-body form-horizontal">
+
+    <div class="form-group" ng-show="analyze.fav_list!==null">
+        <label class="col-sm-3 control-label">Save</label>
+        <div class="col-sm-8">
+            <div class="input-group">
+                <span class="input-group-addon"><input type="checkbox" ng-model="analyze.favorite.save" /></span>
+                <input type="text" class="form-control" ng-model="analyze.favorite.name" ng-disabled="!analyze.favorite.save" placeholder="Channel Name to save in the Favorite List" />
+            </div>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label class="col-sm-3 control-label">URL</label>
+        <div class="col-sm-8"><input type="text" class="form-control" ng-model="analyze.http.url" placeholder="HTTP Address" /></div>
+    </div>
+
+    <div class="form-group">
+        <label class="col-sm-3 control-label">Sync</label>
+        <div class="col-sm-8">
+            <div class="input-group">
+                <span class="input-group-addon"><input type="checkbox" ng-model="analyze.http.sync" /></span>
+                <input type="text" class="form-control" ng-model="analyze.http.sync_size" ng-disabled="!analyze.http.sync" placeholder="Sync buffer size in Mb. Default: 1" />
+            </div>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label class="col-sm-3 control-label">PNR</label>
+        <div class="col-sm-8"><input type="text" class="form-control" ng-model="analyze.http.pnr" placeholder="Program Number" /></div>
+    </div>
+
+    </div>
+    <div class="modal-footer">
+        <button class="btn btn-default modal-close" style="width: 100px;" ng-click="analyze_reset_options()">Cancel</button>
+        <button class="btn btn-primary modal-close" style="width: 100px;" ng-click="http_start()">Start</button>
+    </div>
+</div></div></div>
+
+<div class="options-box" modal="udp"><div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">UDP Options</h4></div>
+    <div class="modal-body form-horizontal">
+
+    <div class="form-group" ng-show="analyze.fav_list!==null">
+        <label class="col-sm-3 control-label">Save</label>
+        <div class="col-sm-8">
+            <div class="input-group">
+                <span class="input-group-addon"><input type="checkbox" ng-model="analyze.favorite.save" /></span>
+                <input type="text" class="form-control" ng-model="analyze.favorite.name" ng-disabled="!analyze.favorite.save" placeholder="Channel Name to save in the Favorite List" />
+            </div>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label class="col-sm-3 control-label">Address</label>
+        <div class="col-sm-8"><div class="row options-group">
+            <div class="col-sm-8"><input type="text" class="form-control" ng-model="analyze.udp.addr" placeholder="IP Address" /></div>
+            <div class="col-sm-4"><input type="text" class="form-control" ng-model="analyze.udp.port" placeholder="Port" /></div>
+        </div></div>
+    </div>
+
+    <div class="form-group" >
+        <label class="col-sm-3 control-label">Interface</label>
+        <div class="col-sm-8">
+            <select class="form-control" ng-if="analyze.eth_list" ng-model="analyze.udp.localaddr">
+                <option value="">Default: System route</option>
+                <option ng-repeat="(k, v) in analyze.eth_list" value="{{ v }}">{{ k }} : {{ v }}</option>
+            </select>
+            <input type="text" class="form-control" ng-if="!analyze.eth_list" ng-model="analyze.udp.localaddr" placeholder="Interface IP Address or Name" />
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label class="col-sm-3 control-label">RTP</label>
+        <div class="col-sm-8"><label class="checkbox"><input type="checkbox" ng-model="analyze.udp.rtp" /></label></div>
+    </div>
+
+    <div class="form-group">
+        <label class="col-sm-3 control-label">PNR</label>
+        <div class="col-sm-8"><input type="text" class="form-control" ng-model="analyze.udp.pnr" placeholder="Program Number" /></div>
+    </div>
+
+    </div>
+    <div class="modal-footer">
+        <button class="btn btn-default modal-close" style="width: 100px;" ng-click="analyze_reset_options()">Cancel</button>
+        <button class="btn btn-primary modal-close" style="width: 100px;" ng-click="udp_start()">Start</button>
+    </div>
+</div></div></div>
+
+<div class="options-box" modal="dvb"><div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h4 class="modal-title">DVB Options</h4></div>
+    <div class="modal-body form-horizontal">
+
+    <div class="form-group" ng-show="analyze.fav_list!==null">
+        <label class="col-sm-3 control-label">Save</label>
+        <div class="col-sm-8">
+            <div class="input-group">
+                <span class="input-group-addon"><input type="checkbox" ng-model="analyze.favorite.save" /></span>
+                <input type="text" class="form-control" ng-model="analyze.favorite.name" ng-disabled="!analyze.favorite.save" placeholder="Channel Name to save in the Favorite List" />
+            </div>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label class="col-sm-3 control-label">DVB Type</label>
+        <div class="col-sm-8">
+            <div class="btn-group dvb-type" style="width:100%">
+                <button class="btn btn-default" style="width:20%" ng-class="{'active': analyze.dvb.type=='S'}" ng-click="analyze.dvb.type='S'"> S</button>
+                <button class="btn btn-default" style="width:20%" ng-class="{'active': analyze.dvb.type=='S2'}" ng-click="analyze.dvb.type='S2'"> S2</button>
+                <button class="btn btn-default" style="width:20%" ng-class="{'active': analyze.dvb.type=='T'}" ng-click="analyze.dvb.type='T'"> T</button>
+                <button class="btn btn-default" style="width:20%" ng-class="{'active': analyze.dvb.type=='T2'}" ng-click="analyze.dvb.type='T2'"> T2</button>
+                <button class="btn btn-default" style="width:20%" ng-class="{'active': analyze.dvb.type=='C'}" ng-click="analyze.dvb.type='C'"> C</button>
+            </div>
+        </div>
+    </div>
+    <div class="form-group">
+        <label class="col-sm-3 control-label">Adapter</label>
+        <div class="col-sm-8"><select class="form-control" ng-model="analyze.dvb.adapter">
+            <option ng-repeat="a in analyze.dvb_list" ng-disabled="a.busy" value="{{ a.adapter }}">{{ a.adapter }} : {{ a.name }}</option>
+        </select></div>
+    </div>
+
+    <div class="form-group" ng-show="analyze.dvb.type[0] == 'T'">
+        <label class="col-sm-3 control-label">Frequency</label>
+        <div class="col-sm-8"><input type="text" class="form-control" ng-model="analyze.dvb.frequency" placeholder="Frequency" /></div>
+    </div>
+
+    <div class="form-group" ng-show="analyze.dvb.type[0] == 'C'">
+        <label class="col-sm-3 control-label">TP</label>
+        <div class="col-sm-8"><div class="row options-group">
+            <div class="col-sm-6"><input type="text" class="form-control" ng-model="analyze.dvb.frequency" placeholder="Frequency" /></div>
+            <div class="col-sm-6"><input type="text" class="form-control" ng-model="analyze.dvb.symbolrate" placeholder="Symbolrate" /></div>
+        </div></div>
+    </div>
+
+    <div class="form-group" ng-show="analyze.dvb.type[0] == 'S'">
+        <label class="col-sm-3 control-label">TP</label>
+        <div class="col-sm-8"><div class="row options-group">
+            <div class="col-sm-4"><input type="text" class="form-control" ng-model="analyze.dvb.frequency" placeholder="Frequency" /></div>
+            <div class="col-sm-4"><select class="form-control" ng-model="analyze.dvb.polarization">
+                <option value=""></option>
+                <option disabled="disabled">----</option>
+                <option value="V">Vertical</option>
+                <option value="H">Horizontal</option>
+                <option disabled="disabled">----</option>
+                <option value="R">Right</option>
+                <option value="L">Left</option>
+            </select></div>
+            <div class="col-sm-4"><input type="text" class="form-control" ng-model="analyze.dvb.symbolrate" placeholder="Symbolrate" /></div>
+        </div></div>
+    </div>
+    <div class="form-group" ng-show="analyze.dvb.type[0] == 'S'">
+        <label class="col-sm-3 control-label">LNB</label>
+        <div class="col-sm-8"><div class="row options-group" lnb-input>
+            <div class="col-sm-4"><input type="text" class="form-control" placeholder="LOF1" /></div>
+            <div class="col-sm-4"><input type="text" class="form-control" placeholder="LOF2" /></div>
+            <div class="col-sm-4"><input type="text" class="form-control" placeholder="SLOF" /></div>
+        </div></div>
+    </div>
+    <div class="form-group" ng-show="analyze.dvb.type[0] == 'S'">
+        <label class="col-sm-3 control-label">LNB Sharing</label>
+        <div class="col-sm-8"><label class="checkbox"><input type="checkbox" ng-model="analyze.dvb.lnb_sharing" /></label></div>
+    </div>
+    <div class="form-group" ng-show="analyze.dvb.type[0] == 'S'">
+        <label class="col-sm-3 control-label">DiSEqC</label>
+        <div class="col-sm-8"><select ng-model="analyze.dvb.diseqc" class="form-control">
+            <option value="">Default: None</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+        </select></div>
+    </div>
+    <div class="form-group" ng-show="analyze.dvb.type[0] == 'S'">
+        <label class="col-sm-3 control-label">Force Tone</label>
+        <div class="col-sm-8"><label class="checkbox"><input type="checkbox" ng-model="analyze.dvb.tone" /></label></div>
+    </div>
+    <div class="form-group" ng-show="analyze.dvb.type[0] == 'S' || analyze.dvb.type[0] == 'C'">
+        <label class="col-sm-3 control-label">FEC</label>
+        <div class="col-sm-8"><select class="form-control" ng-model="analyze.dvb.fec">
+            <option value="">Default: Auto</option>
+            <option value="NONE">None</option>
+            <option value="1/2">1/2</option>
+            <option value="2/3">2/3</option>
+            <option value="3/4">3/4</option>
+            <option value="4/5">4/5</option>
+            <option value="5/6">5/6</option>
+            <option value="6/7">6/7</option>
+            <option value="7/8">7/8</option>
+            <option value="8/9">8/9</option>
+            <option value="3/5">3/5</option>
+            <option value="9/10">9/10</option>
+        </select></div>
+    </div>
+    <div class="form-group" ng-show="analyze.dvb.type[0] == 'S'">
+        <label class="col-sm-3 control-label">Roll-off</label>
+        <div class="col-sm-8"><select class="form-control" ng-model="analyze.dvb.rolloff">
+            <option value="AUTO">Auto</option>
+            <option value="20">20</option>
+            <option value="25">25</option>
+            <option value="">Default: 35</option>
+        </select></div>
+    </div>
+
+    <div class="form-group" ng-show="analyze.dvb.type[0] == 'T'">
+        <label class="col-sm-3 control-label">Bandwidth</label>
+        <div class="col-sm-8"><select class="form-control" ng-model="analyze.dvb.bandwidth">
+            <option value="">Default: Auto</option>
+            <option value="8MHZ">8 MHz</option>
+            <option value="7MHZ">7 MHz</option>
+            <option value="6MHZ">6 MHz</option>
+        </select></div>
+    </div>
+    <div class="form-group" ng-show="analyze.dvb.type[0] == 'T'">
+        <label class="col-sm-3 control-label">Guard Interval</label>
+        <div class="col-sm-8"><select class="form-control" ng-model="analyze.dvb.guardinterval">
+            <option value="">Default: Auto</option>
+            <option value="1/32">1/32</option>
+            <option value="1/16">1/16</option>
+            <option value="1/8">1/8</option>
+            <option value="1/4">1/4</option>
+        </select></div>
+    </div>
+    <div class="form-group" ng-show="analyze.dvb.type[0] == 'T'">
+        <label class="col-sm-3 control-label">Transmit Mode</label>
+        <div class="col-sm-8"><select class="form-control" ng-model="analyze.dvb.transmitmode">
+            <option value="">Default: Auto</option>
+            <option value="2K">2K</option>
+            <option value="8K">8K</option>
+            <option value="4K">4K</option>
+        </select></div>
+    </div>
+    <div class="form-group" ng-show="analyze.dvb.type[0] == 'T'">
+        <label class="col-sm-3 control-label">Hierarchy</label>
+        <div class="col-sm-8"><select class="form-control" ng-model="analyze.dvb.hierarchy">
+            <option value="">Default: Auto</option>
+            <option value="NONE">None</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="4">4</option>
+        </select></div>
+    </div>
+
+    <div class="form-group" ng-show="analyze.dvb.type">
+        <label class="col-sm-3 control-label">Modulation</label>
+        <div class="col-sm-8"><select class="form-control" ng-model="analyze.dvb.modulation">
+            <option value="">Default: not set</option>
+            <option value="AUTO">Auto</option>
+            <option value="QPSK">QPSK</option>
+            <option value="QAM16">QAM16</option>
+            <option value="QAM32">QAM32</option>
+            <option value="QAM64">QAM64</option>
+            <option value="QAM128">QAM128</option>
+            <option value="QAM256">QAM256</option>
+            <option value="VSB8">VSB8</option>
+            <option value="VSB16">VSB16</option>
+            <option value="PSK8">PSK8</option>
+            <option value="APSK16">APSK16</option>
+            <option value="APSK32">APSK32</option>
+            <option value="DQPSK">DQPSK</option>
+        </select></div>
+    </div>
+
+    <div class="form-group">
+        <label class="col-sm-3 control-label">Raw signal</label>
+        <div class="col-sm-8">
+            <label class="checkbox"><input type="checkbox" ng-model="analyze.dvb.raw_signal" />&nbsp;<span style="color:#737373;font-weight:normal;">Signal in dBm if supported by driver</span></label>
+        </div>
+    </div>
+    <div class="form-group">
+        <label class="col-sm-3 control-label">PNR</label>
+        <div class="col-sm-8"><input type="text" class="form-control" ng-model="analyze.dvb.pnr" placeholder="Program Number" /></div>
+    </div>
+
+    </div>
+    <div class="modal-footer">
+        <button class="btn btn-default modal-close" style="width: 100px;" ng-click="analyze_reset_options()">Cancel</button>
+        <button class="btn btn-primary modal-close" style="width: 100px;" ng-click="dvb_start()">Start</button>
+    </div>
+</div></div></div>
+
+<div class="wrap">
+<nav class="analyze-nav container-fluid"><div class="row">
+    <div class="col-sm-6">
+        <div ng-show="analyze.fav_list!==null" class="fav-list" dropdown-filter>
+            <input class="form-control dropdown-open" placeholder="{{ analyze.favorite.name }}" ng-model="FilterService.text" autocomplete="off" autocorrect="off" />
+            <i class="fa fa-caret-down" style="position:absolute;right:30px;top:6px;color:#aaa;font-size:1.6em;font-weight:bold;"></i>
+            <ul class="dropdown list-group">
+                <a class="list-group-item" ng-repeat="(i,f) in analyze.fav_list | filter:{name:FilterService.text}" ng-click="fav_start(i)">{{ f.name }}<button class="btn btn-default btn-xs fav-delete" ng-click="$event.stopPropagation();fav_delete(i)"><i class="fa fa-times"></i></button></a>
+            </ul>
+        </div>
+    </div>
+    <div class="col-sm-6" style="text-align: right;">
+        <button class="btn btn-default" style="width:140px;" ng-disabled="analyze.started!=1 || !analyze.dvb_list" modal-open="dvb" ng-click="analyze_reset_options()">DVB Options</button>
+        <button class="btn btn-default" style="width:140px;" ng-disabled="analyze.started!=1" modal-open="udp" ng-click="analyze_reset_options()">UDP/RTP Options</button>
+        <button class="btn btn-default" style="width:140px;" ng-disabled="analyze.started!=1" modal-open="http" ng-click="analyze_reset_options()">HTTP Options</button>
+        <button type="submit" class="btn btn-default" style="width:140px;" ng-disabled="!analyze.addr || analyze.started!=1" ng-show="analyze.started!=3" ng-click="analyze.started=2; start(analyze.addr)">Start</button>
+        <button type="submit" class="btn btn-default" style="width:140px;" ng-show="analyze.started==3" ng-click="analyze.started=2; stop()">Stop</button>
+    </div>
+</div></nav>
+
+<div class="container-fluid content">
+    <div class="row">
+        <div class="col-lg-6">
+            <div class="stream-info">
+
+<div class="program-info"><div class="row">
+    <div class="col-sm-2">Bitrate</div>
+    <div class="col-sm-10">{{ analyze.bitrate }}&nbsp;Mbit/s</div>
+</div><div class="row">
+    <div class="col-sm-2">TSID</div>
+    <div class="col-sm-10">{{ analyze.tsid }}</div>
+</div><div class="row">
+    <div class="col-sm-2">CC Errors</div>
+    <div class="col-sm-10">{{ analyze.cc_error }}</div>
+</div></div>
+
+<div class="program-info" ng-show="analyze.source=='dvb'"><div class="row">
+    <div class="col-sm-2" ng-style="">Status</div>
+    <div class="col-sm-10">
+        <span style="padding-right: 5px" ng-style="{color: (analyze.dvb_status.status.signal) ? '#3c763d' : '#a94442'}">SIGNAL</span>
+        <span style="padding-right: 5px" ng-style="{color: (analyze.dvb_status.status.carrier) ? '#3c763d' : '#a94442'}">CARRIER</span>
+        <span style="padding-right: 5px" ng-style="{color: (analyze.dvb_status.status.viterbi) ? '#3c763d' : '#a94442'}">FEC</span>
+        <span style="padding-right: 5px" ng-style="{color: (analyze.dvb_status.status.sync) ? '#3c763d' : '#a94442'}">SYNC</span>
+        <span ng-style="{color: (analyze.dvb_status.status.lock) ? '#3c763d' : '#a94442'}">LOCK</span>
+    </div>
+</div><div class="row">
+    <div class="col-sm-2">Signal</div>
+    <div class="col-sm-8" style="padding-right: 5px;"><div class="progress" style="margin-bottom: 0;"><div class="progress-bar" ng-style="{width: analyze.dvb_status.signal_level + '%'}"></div></div></div>
+    <div class="col-sm-2" style="padding-left: 0; text-align: left;">{{analyze.dvb_status.signal_value}}</div>
+</div><div class="row">
+    <div class="col-sm-2">SNR</div>
+    <div class="col-sm-8" style="padding-right: 5px;"><div class="progress" style="margin-bottom: 0;"><div class="progress-bar" ng-style="{width: analyze.dvb_status.snr_level + '%'}"></div></div></div>
+    <div class="col-sm-2" style="padding-left: 0; text-align: left;">{{analyze.dvb_status.snr_value}}</div>
+</div><div class="row">
+    <div class="col-sm-2">BER</div>
+    <div class="col-sm-10">{{analyze.dvb_status.ber}}</div>
+</div><div class="row">
+    <div class="col-sm-2">UNC</div>
+    <div class="col-sm-10">{{analyze.dvb_status.unc}}</div>
+</div></div>
+
+<div class="program" ng-repeat="(pnr, program) in analyze.program_list">
+    <div class="program-header" ng-click="program.hide=!program.hide" ng-class="{'on-air': program.on_air==true, 'stream-error': program.on_air==false}">&nbsp;{{ program.name }}</div>
+    <div class="program-info" ng-hide="program.hide">
+        <div class="row">
+            <div class="col-sm-2">PNR</div>
+            <div class="col-sm-10">{{ pnr }}</div>
+        </div>
+        <div class="row" ng-show="program.provider">
+            <div class="col-sm-2">Provider</div>
+            <div class="col-sm-10">{{ program.provider }}</div>
+        </div>
+        <div class="row" ng-show="program.pmt_pid">
+            <div class="col-sm-2">PMT PID</div>
+            <div class="col-sm-10">{{ program.pmt_pid }}</div>
+        </div>
+        <div class="row" ng-show="program.pcr_pid">
+            <div class="col-sm-2">PCR PID</div>
+            <div class="col-sm-10">{{ program.pcr_pid }}</div>
+        </div>
+        <div class="row" ng-repeat="desc in program.desc_list">
+            <div class="col-sm-2">{{ desc.type }}</div>
+            <div class="col-sm-10">{{ desc.info }}</div>
+        </div>
+        <div ng-repeat="es in program.es_list">
+            <div class="es-header"><i class="fa {{ es.icon }}"></i>&nbsp;<strong ng-class="{'on-air': es.on_air==true, 'stream-error': es.on_air==false}">Stream {{ es.type }}</strong></div>
+            <div class="row">
+                <div class="col-sm-2">Type</div>
+                <div class="col-sm-10">{{ es.info }}</div>
+            </div>
+            <div class="row">
+                <div class="col-sm-2">PID</div>
+                <div class="col-sm-10">{{ es.pid }}</div>
+            </div>
+            <div class="row" ng-repeat="desc in es.desc_list">
+                <div class="col-sm-2">{{ desc.type }}</div>
+                <div class="col-sm-10">{{ desc.info }}</div>
+            </div>
+            <div class="row">
+                <div class="col-sm-2">Bitrate</div>
+                <div class="col-sm-10">{{ es.bitrate }}&nbsp;Kbit/s</div>
+            </div>
+            <div class="row">
+                <div class="col-sm-2">Scrambled</div>
+                <div class="col-sm-10">{{ es.scrambled }}</div>
+            </div>
+            <div class="row">
+                <div class="col-sm-2">CC Errors</div>
+                <div class="col-sm-10">{{ es.cc_error }}</div>
+            </div>
+            <div class="row">
+                <div class="col-sm-2">PES Errors</div>
+                <div class="col-sm-10">{{ es.pes_error }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="program" ng-show="analyze.cat">
+    <div class="program-header">CAT</div>
+    <div class="program-info">
+        <div class="row" ng-repeat="desc in analyze.cat.desc_list">
+            <div class="col-sm-2">{{ desc.type }}</div>
+            <div class="col-sm-10">{{ desc.info }}</div>
+        </div>
+    </div>
+</div>
+
+            </div>
+        </div><div class="col-lg-6">
+            <div id="bitrate-chart" style="width: 100%;"></div>
+        </div>
+    </div>
+</div>
+</div>
+
+<footer class="footer container-fluid">
+    <span class="copyright">&copy; 2013-2014 Cesbo Ltd. All rights reserved.</span>
+    <span class="version">{{ analyze.version }}</span>
+</footer>
+</body>
+
+<script src="//cdnjs.cloudflare.com/ajax/libs/angular.js/1.2.15/angular.min.js"></script>
+<script src="//cdnjs.cloudflare.com/ajax/libs/dygraph/1.0.1/dygraph-combined.js"></script>
+<script type="text/javascript">
+Number.prototype.format = function(c, d, t) {
+    var n = this,
+        c = isNaN(c = Math.abs(c)) ? 2 : c,
+        d = d == undefined ? " " : d,
+        t = t == undefined ? "." : t,
+        s = n < 0 ? "-" : "",
+        i = parseInt(n = Math.abs(+n || 0).toFixed(c)) + "",
+        j = (j = i.length) > 3 ? j % 3 : 0;
+
+    return s
+           + (j ? i.substr(0, j) + d : "")
+           + i.substr(j).replace(/(\d{3})(?=\d)/g, "$1" + d)
+           + (c ? t + Math.abs(n - i).toFixed(c).slice(2) : "");
+};
+
+Number.prototype.toHex = function(p) {
+    var n = this,
+        p = p == undefined ? 2 : p,
+        h = n.toString(16);
+
+    while(h.length < p) h = "0" + h;
+    return "0x" + h;
+};
+
+angular.element.prototype.findClass = function(name) {
+    var el = this.children();
+    var r = [];
+    for(var i = 0; i < el.length; ++i) {
+        var o = angular.element(el[i]);
+        if(o.hasClass(name))
+            r.push(el[i]);
+        var rr = o.findClass(name);
+        if(rr && rr.length > 0)
+            r = r.concat(rr);
+    }
+    return r;
+}
+
+var bitrate_chart = null;
+var bitrate_chart_data = [];
+
+var App = angular.module('App', []);
+
+App.directive('lazyHref', function() {
+    return {
+        restrict: 'A',
+        transclude: true,
+        link: function (scope, element, attrs) {
+            element.attr("type", "text/css");
+            element.attr("rel", "stylesheet");
+            element.attr("href", attrs.lazyHref);
+            element.removeAttr("lazy-href");
+        }
+    };
+});
+
+App.directive("dropdown", function() {
+    return({
+        restrict: 'A',
+        link: function(scope, element, attrs) {
+            var m = angular.element(element.findClass('dropdown')[0]);
+            var t = angular.element(element.findClass('dropdown-open')[0]);
+            var b = angular.element(document.getElementsByTagName('body'));
+            t.on('click', function(e) {
+                var c = function(e) {
+                    if(m.hasClass('open')) {
+                        m.removeClass('open');
+                        b.unbind('click', c);
+                    } else {
+                        m.addClass('open');
+                    }
+                }
+                if(!m.hasClass('open'))
+                    b.bind('click', c);
+            });
+        }
+    });
+});
+
+App.directive("dropdownFilter", function() {
+    return({
+        restrict: 'A',
+        link: function(scope, element, attrs) {
+            var m = angular.element(element.findClass('dropdown')[0]);
+            var t = angular.element(element.findClass('dropdown-open')[0]);
+            var b = angular.element(document.getElementsByTagName('body'));
+            var mh = function() {
+                if(m.hasClass('open')) {
+                    m.removeClass('open');
+                    b.unbind('click', mh);
+                }
+            };
+            var ms = function() {
+                if(!m.hasClass('open')) {
+                    m.addClass('open');
+                    b.bind('click', mh);
+                }
+            };
+            t.on('click', function(e) {
+                ms();
+                e.preventDefault();
+                e.stopPropagation();
+            });
+            t.on('focus', function(e) {
+                ms();
+                e.preventDefault();
+                e.stopPropagation();
+            });
+        }
+    });
+});
+
+App.directive("modal", function() {
+    return({
+        restrict: 'A',
+        link: function(scope, element, attrs) {
+            if(!scope.modal) scope.modal = {};
+            scope.modal[attrs.modal] = element;
+
+            var sl = element.findClass('modal-close');
+            for(var i = 0; i < sl.length; ++i) {
+                angular.element(sl[i]).on('click', function(e) {
+                    element.removeClass('open');
+                });
+            }
+        }
+    });
+});
+
+App.directive("modalOpen", function() {
+    return({
+        restrict: 'A',
+        link: function(scope, element, attrs) {
+            element.on('click', function(e) {
+                var m = scope.modal[attrs.modalOpen];
+                if(m && !m.hasClass('open'))
+                    m.addClass('open');
+            });
+        }
+    });
+});
+
+App.directive("lnbInput", ['$parse', function($parse) {
+    return({
+        restrict: 'A',
+        link: function(scope, element, attrs) {
+            var l = element.find('input');
+            var lof1 = angular.element(l[0]);
+            var lof2 = angular.element(l[1]);
+            var slof = angular.element(l[2]);
+
+            scope.$watch('analyze.dvb.lof1', function(v) { lof1.val((v) ? v : ""); });
+            scope.$watch('analyze.dvb.lof2', function(v) { lof2.val((v) ? v : ""); });
+            scope.$watch('analyze.dvb.slof', function(v) { slof.val((v) ? v : ""); });
+
+            lof1.on('keyup', function(e) {
+                var p = (!scope.analyze.dvb.lof1 || !scope.analyze.dvb.lof1.length);
+                scope.analyze.dvb.lof1 = lof1.val();
+                if(p && scope.analyze.dvb.lof1.length == 1) {
+                    switch(scope.analyze.dvb.lof1) {
+                        case '9':
+                            scope.analyze.dvb.lof1 = "9750";
+                            scope.analyze.dvb.lof2 = "10600";
+                            scope.analyze.dvb.slof = "11700";
+                            scope.$apply();
+                            lof1[0].setSelectionRange(1, 4);
+                            return;
+                        case '1':
+                            scope.analyze.dvb.lof1 = "10750";
+                            scope.analyze.dvb.lof2 = "10750";
+                            scope.analyze.dvb.slof = "10750";
+                            scope.$apply();
+                            lof1[0].setSelectionRange(1, 5);
+                            return;
+                    }
+                }
+                scope.$apply();
+            });
+            lof2.on('keyup', function(e) { scope.analyze.dvb.lof2 = lof2.val(); scope.$apply(); });
+            slof.on('keyup', function(e) { scope.analyze.dvb.slof = slof.val(); scope.$apply(); });
+        }
+    })
+}]);
+
+App.filter('escape', function() {
+    return window.escape;
+});
+
+App.factory("FilterService", function() {
+    return { text: "" };
+});
+
+App.factory('WebSocketService', ['$q', '$rootScope', function($q, $rootScope) {
+    var service = {};
+
+    service.ws = null;
+    service.ws_timer = null;
+
+    service.connect = function(addr) {
+        service.ws = new WebSocket(addr);
+
+        service.ws.onopen = function() {
+            if(service.ws_timer)
+                location.reload(false);
+            else
+                service.__onready();
+        }
+        service.ws.onclose = function() {
+            if(!service.ws_timer)
+            {
+                service.__onerror();
+                service.ws_timer = setInterval(function(){ service.connect(addr); }, 1000);
+            }
+        }
+        service.ws.onerror = service.ws.onclose;
+        service.ws.onmessage = function(message) {
+            service.__onmessage(JSON.parse(message.data));
+        };
+    }
+
+    service.onready = function(callback) { service.__onready = callback; }
+    service.onerror = function(callback) { service.__onerror = callback; }
+    service.onmessage = function(callback) { service.__onmessage = callback; }
+    service.send = function(data) { service.ws.send(JSON.stringify(data)); }
+
+    return service;
+}]);
+
+App.run(["$rootScope",
+         "FilterService",
+         function($rootScope, FilterService)
+{
+    $rootScope.FilterService = FilterService;
+}]);
+
+function parse_descriptor(desc) {
+    switch(desc.type_name) {
+        case 'cas':
+            var d = (desc.data) ? (" data: " + desc.data) : ("");
+            var i = "CAID:" + Number(desc.caid).toHex(4) + " PID:" + desc.pid + d;
+            return { type: "CAS", info: i };
+        case 'lang':
+            return { type: "Language", info: desc.lang };
+        case 'stream_id':
+            return { type: "Stream ID", info: desc.stream_id };
+        case 'unknown':
+            return { type: "Descriptor", info: desc.data };
+        default:
+            var i = "Unknown. type:" + desc.type_name + " " + Number(desc.type_id).toHex(2);
+            return { type: "Descriptor", info: i };
+    }
+}
+
+function stream_type_description(type_id) {
+    switch(type_id) {
+        // Video
+        case 0x01: return "ISO/IEC 11172 Video";
+        case 0x02: return "ISO/IEC 13818-2 Video";
+        case 0x10: return "ISO/IEC 14496-2 Visual";
+        case 0x1B: return "ISO/IEC 14496-10 Video | H.264 video";
+        // Audio
+        case 0x03: return "ISO/IEC 11172 Audio";
+        case 0x04: return "ISO/IEC 13818-3 Audio";
+        case 0x0F: return "ISO/IEC 13818-7 Audio (ADTS)";
+        case 0x11: return "ISO/IEC 14496-3 Audio (LATM)";
+        // Data
+        case 0x06: return "ISO/IEC 13818-1 PES private data";
+        default: return "Unknown Stream Type";
+    }
+}
+
+function parse_es(es) {
+    var result = {};
+
+    switch(es.type_name) {
+        case 'AUDIO':
+            result.type = 'Audio';
+            result.icon = 'fa-music';
+            break;
+        case 'VIDEO':
+            result.type = 'Video';
+            result.icon = 'fa-film';
+            break;
+        case 'SUB':
+            result.type = 'Subtitle';
+            result.icon = 'fa-align-center';
+            break;
+        case 'DATA':
+            result.type = 'Data';
+            result.icon = 'fa-file-o';
+            break;
+        default:
+            result.type = es.type_name;
+            result.icon = 'fa-question';
+            break;
+    }
+
+    result.pid = es.pid;
+    result.info = stream_type_description(es.type_id) + ' [' + Number(es.type_id).toHex(2) + ']';
+    result.bitrate = 0;
+    result.scrambled = "NO";
+    result.cc_error = 0;
+    result.pes_error = 0;
+    result.desc_list = [];
+    result.programs = [];
+    for(var k in es.descriptors)
+        result.desc_list.push(parse_descriptor(es.descriptors[k]));
+
+    return result;
+}
+
+App.controller('Analyzer', ['$scope',
+                            'WebSocketService',
+                            function($scope, WebSocketService)
+{
+    $scope.analyze = {};
+    $scope.analyze.started = 1;
+    $scope.analyze.version = "-";
+
+    $scope.analyze.http = {};
+    $scope.analyze.udp = { port: 1234 };
+    $scope.analyze.dvb = {};
+
+    $scope.analyze_reset_options = function(keep) {
+        $scope.analyze.favorite = {};
+    }
+
+    $scope.analyze_reset_data = function() {
+        $scope.analyze.bitrate = 0;
+        $scope.analyze.tsid = '-';
+        $scope.analyze.cc_error = 0;
+        $scope.analyze.dvb_status = { signal_level: 0, signal_value: '-', snr_level: 0, snr_value: '-', ber: 0, unc: 0, status: {} };
+        $scope.analyze.program_list = {};
+        $scope.analyze.es_list = {};
+        $scope.analyze.cat = null;
+    }
+
+    $scope.analyze_reset_options();
+    $scope.analyze_reset_data();
+
+    var api = {};
+    api['version'] = function(data) {
+        $scope.analyze.error = null;
+        $scope.analyze.message = null;
+        $scope.analyze.fav_list = null;
+        $scope.analyze.dvb_list = null;
+        $scope.analyze.eth_list = null;
+        $scope.analyze.version = "Astra v." + data.version;
+        WebSocketService.send({ "cmd": "fav-list" });
+        WebSocketService.send({ "cmd": "eth-list" });
+        WebSocketService.send({ "cmd": "dvb-list" });
+    }
+    api['start'] = function(data) {
+        $scope.analyze.started = 3;
+    }
+    api['stop'] = function(data) {
+        $scope.analyze.started = 1;
+        if($scope.analyze.addr_next) {
+            $scope.start($scope.analyze.addr_next);
+            $scope.analyze.addr_next = null;
+        }
+    }
+    api['error'] = function(data) {
+        $scope.analyze.info = data.message;
+    }
+    api['analyze'] = function(data) {
+        if(data.rate) {
+            var e = bitrate_chart_data.length;
+            var l = bitrate_chart_data[e - 1][0];
+            bitrate_chart_data = bitrate_chart_data.slice(data.rate.length);
+            bitrate_chart_data[0][1] = 0;
+            for(var i = 0; i < data.rate.length; ++i) {
+                var r = (data.rate[i] * 188 * 8) / 10000;
+                l = l + 0.01;
+                bitrate_chart_data.push([l, r]);
+            }
+            bitrate_chart.updateOptions({ 'file': bitrate_chart_data });
+        }
+        else if(data.analyze) {
+            for(var k in $scope.analyze.program_list) { $scope.analyze.program_list[k].on_air = true; }
+            for(var k in data.analyze) {
+                var v = data.analyze[k];
+                var e = $scope.analyze.es_list[v.pid];
+                if(e) {
+                    e.bitrate = v.bitrate;
+                    e.cc_error = e.cc_error + v.cc_error;
+                    e.pes_error = e.pes_error + v.pes_error;
+                    e.scrambled = (v.sc_error != 0) ? 'YES' : 'NO';
+                    e.on_air = (v.pes_error == 0 && v.sc_error == 0);
+                    if(!e.on_air) { for(var kk in e.programs) e.programs[kk].on_air = false; }
+                }
+            }
+            $scope.analyze.bitrate = Number(data.total.bitrate / 1000).format(2);
+            $scope.analyze.cc_error = $scope.analyze.cc_error + data.total.cc_errors;
+        }
+        else if(data.psi) {
+            if(data.psi === 'pat') {
+                $scope.analyze.tsid = data.tsid;
+                for(var k in data.programs) {
+                    var v = data.programs[k];
+                    if(v.pnr != 0) {
+                        var program = $scope.analyze.program_list[v.pnr];
+                        if(!program) {
+                            program = {};
+                            $scope.analyze.program_list[v.pnr] = program;
+                        }
+                        program.pmt_pid = v.pid;
+                    }
+                }
+            }
+            else if(data.psi === 'pmt') {
+                var program = $scope.analyze.program_list[data.pnr];
+                if(!program) {
+                    program = {};
+                    $scope.analyze.program_list[data.pnr] = program;
+                }
+                program.pmt_pid = data.pid;
+                program.pcr_pid = data.pcr;
+                if(data.descriptors) {
+                    program.desc_list = [];
+                    for(var k in data.descriptors)
+                        program.desc_list.push(parse_descriptor(data.descriptors[k]));
+                }
+                program.es_list = [];
+                for(var k in data.streams)
+                {
+                    var s = data.streams[k];
+                    var es = $scope.analyze.es_list[s.pid];
+                    if(!es) {
+                        es = parse_es(s);
+                        $scope.analyze.es_list[s.pid] = es;
+                    }
+                    es.programs.push(program);
+                    program.es_list.push(es);
+                }
+            }
+            else if(data.psi === 'sdt') {
+                for(var k in data.services) {
+                    var v = data.services[k];
+                    var pnr = v.sid;
+                    var program = $scope.analyze.program_list[pnr];
+                    if(!program) {
+                        program = {};
+                        $scope.analyze.program_list[pnr] = program;
+                    }
+                    program.name = v.descriptors[0].service_name;
+                    program.provider = v.descriptors[0].service_provider;
+                }
+            }
+            else if(data.psi === 'cat') {
+                $scope.analyze.cat = {};
+                $scope.analyze.cat.desc_list = [];
+                for(var k in data.descriptors)
+                    $scope.analyze.cat.desc_list.push(parse_descriptor(data.descriptors[k]));
+            }
+        }
+    }
+
+    api['dvb-status'] = function(data) {
+        if($scope.analyze.dvb.raw_signal) {
+            $scope.analyze.dvb_status.signal_level = 0;
+            $scope.analyze.dvb_status.snr_level = 0;
+            $scope.analyze.dvb_status.signal_value = "-" + data.signal + " dBm";
+            $scope.analyze.dvb_status.snr_value = Number(data.snr / 10).format(1) + " dB";
+        } else {
+            $scope.analyze.dvb_status.signal_level = Math.floor((data.signal * 100) / 65535);
+            $scope.analyze.dvb_status.snr_level = Math.floor((data.snr * 100) / 65535);
+            $scope.analyze.dvb_status.signal_value = $scope.analyze.dvb_status.signal_level + "%";
+            $scope.analyze.dvb_status.snr_value = $scope.analyze.dvb_status.snr_level + "%";
+        }
+        $scope.analyze.dvb_status.ber = data.ber;
+        $scope.analyze.dvb_status.unc = data.unc;
+        $scope.analyze.dvb_status.status.signal = (data.status & 0x01) != 0;
+        $scope.analyze.dvb_status.status.carrier = (data.status & 0x02) != 0;
+        $scope.analyze.dvb_status.status.viterbi = (data.status & 0x04) != 0;
+        $scope.analyze.dvb_status.status.sync = (data.status & 0x08) != 0;
+        $scope.analyze.dvb_status.status.lock = (data.status & 0x10) != 0;
+    }
+
+    api['dvb-list'] = function(data) {
+        if(data.adapters.length == 0) return;
+        data.adapters.sort(function(a,b) { return (a.adapter < b.adapter) ? (-1) : ((a.adapter > b.adapter) ? (1) : (0)); });
+        var dvb_list = [];
+        for (var k in data.adapters) {
+            var a = data.adapters[k];
+            var i = { "adapter": a.adapter };
+            if(a.error) {
+                i.busy = true;
+                i.name = a.error;
+            } else {
+                i.busy = a.busy;
+                i.name = a.mac + " [" + a.frontend + "]";
+            }
+            dvb_list.push(i);
+        }
+        $scope.analyze.dvb_list = dvb_list;
+    }
+
+    api['eth-list'] = function(data) {
+        if(data.interfaces.length == 0) return;
+        $scope.analyze.eth_list = data.interfaces;
+    }
+
+    api['fav-list'] = function(data) {
+        $scope.analyze.fav_list = (data.channels) ? data.channels : null;
+    }
+
+    api['fav-add'] = function(data) {
+        $scope.analyze.fav_list.push({"name": data.name, "addr": data.addr });
+    }
+
+    api['fav-del'] = function(data) {
+        $scope.analyze.fav_list.splice(data.id, 1);
+    }
+
+    $scope.start = function(addr) {
+        if($scope.analyze.favorite.save) {
+            WebSocketService.send({ "cmd": "fav-add",
+                                    "name": $scope.analyze.favorite.name,
+                                    "addr": addr });
+
+            $scope.analyze.favorite.save = null;
+        }
+
+        if($scope.analyze.started == 3) {
+            $scope.stop();
+            $scope.analyze.addr_next = addr;
+        } else {
+            $scope.analyze_reset_data();
+            $scope.analyze.addr = addr;
+            if($scope.analyze.favorite.id !== undefined) {
+                var f = $scope.analyze.fav_list[$scope.analyze.favorite.id];
+                $scope.analyze.favorite.name = f.name;
+            }
+            WebSocketService.send({ "cmd": "start", "address": addr });
+        }
+    }
+
+    $scope.stop = function() {
+        WebSocketService.send({ "cmd": "stop" });
+    }
+
+    $scope.fav_parse = function(addr) {
+        $scope.analyze.dvb = {};
+        $scope.analyze.udp = { port: 1234 };
+        $scope.analyze.http = {};
+
+        var a = addr;
+        var b = a.indexOf("://");
+        var p = a.substring(0, b);
+        a = a.substring(b + 3, a.length);
+        b = a.indexOf("#");
+        var o = null;
+        if(b !== -1) {
+            o = a.substring(b + 1, a.length);
+            a = a.substring(0, b);
+        }
+
+        function parse_options(r, o) {
+            var l = o.split("&");
+            for(var i = 0; i < l.length; ++i) {
+                var v = l[i];
+                var b = v.indexOf("=");
+                var k;
+                if(b !== -1) {
+                    k = v.substring(0, b);
+                    v = v.substring(b + 1, v.length);
+                } else {
+                    k = v;
+                    v = true;
+                }
+                r[k] = v;
+            }
+        }
+
+        switch(p) {
+            case "dvb":
+                break;
+            case "udp":
+                b = a.indexOf("@");
+                if(b !== -1) {
+                    $scope.analyze.udp.localaddr = a.substring(0, b);
+                    a = a.substring(b + 1, a.length);
+                }
+                b = a.indexOf(":");
+                if(b !== -1) {
+                    $scope.analyze.udp.port = Number(a.substring(b + 1, a.length));
+                    $scope.analyze.udp.addr = a.substring(0, b);
+                } else {
+                    $scope.analyze.udp.port = 1234;
+                    $scope.analyze.udp.addr = a;
+                }
+                break;
+            case "http":
+                $scope.analyze.http.url = "http://" + a;
+                break;
+        }
+        if(o) parse_options($scope.analyze[p], o);
+    }
+
+    $scope.fav_start = function(i) {
+        $scope.analyze_reset_options();
+
+        var a = $scope.analyze.fav_list[i].addr;
+        $scope.fav_parse(a);
+
+        $scope.analyze.favorite.id = i;
+        $scope.start(a);
+    }
+
+    $scope.fav_delete = function(i) {
+        WebSocketService.send({ "cmd": "fav-del", "id": i });
+    }
+
+    $scope.dvb_start = function() {
+        $scope.analyze.started = 2;
+
+        var o = "";
+        for(var k in $scope.analyze.dvb) {
+            var v = $scope.analyze.dvb[k];
+            if(!v) continue;
+            o = o + "&" + k;
+            if(v !== true) o = o + "=" + v;
+        }
+        var url = "dvb://#" + o.slice(1);
+
+        $scope.analyze.source = 'dvb';
+        $scope.start(url);
+    }
+
+    $scope.udp_start = function() {
+        $scope.analyze.started = 2;
+
+        var url = (!$scope.analyze.udp.rtp) ? "udp://" : "rtp://";
+        var l = $scope.analyze.udp.localaddr; if(l && l.length > 0) url = url + l + "@";
+        url = url + $scope.analyze.udp.addr + ":" + $scope.analyze.udp.port;
+        if($scope.analyze.udp.pnr) url = url + "#pnr=" + $scope.analyze.udp.pnr;
+
+        $scope.analyze.source = 'udp';
+        $scope.start(url);
+    }
+
+    $scope.http_start = function() {
+        $scope.analyze.started = 2;
+
+        var url = $scope.analyze.http.url;
+
+        var o = "";
+        if($scope.analyze.http.sync == true) {
+            o = o + "&sync";
+            if($scope.analyze.http.sync_size > 1) o = o + "=" + $scope.analyze.http.sync_size;
+        }
+        if($scope.analyze.http.pnr) o = o + "&pnr=" + $scope.analyze.http.pnr;
+        if(o.length > 0) url = url + "#" + o.slice(1);
+
+        $scope.analyze.source = 'http';
+        $scope.start(url);
+    }
+
+    WebSocketService.onready(function() {
+        WebSocketService.send({ "cmd": "version" });
+    });
+    WebSocketService.onerror(function() {
+        $scope.analyze.error = "Connection closed";
+        $scope.analyze.version = "-";
+        $scope.$apply();
+    });
+    WebSocketService.onmessage(function(data) {
+        if(data.cmd && api[data.cmd]) {
+            api[data.cmd](data);
+            $scope.$apply();
+        } else {
+            console.log(data);
+        }
+    });
+    WebSocketService.connect('ws://' + location.host + '/api/');
+
+    angular.element(document).ready(function () {
+        for(var i = -10; i < 0; i = i + 0.01) bitrate_chart_data.push([i, 0]);
+        bitrate_chart = new Dygraph(document.getElementById("bitrate-chart"), bitrate_chart_data, {
+            title: 'Bitrate Mbit/s',
+            labels: ['Time', 'Bitrate'],
+            axes: {
+                x: {
+                    valueFormatter: function(x) { return x.format(2); }
+                }
+            },
+            rollPeriod: 10
+        });
+
+        $scope.ready = true;
+        $scope.$apply();
+    });
+}]);
+</script>
+</html>
