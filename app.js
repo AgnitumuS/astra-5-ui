@@ -749,14 +749,6 @@ function Host(hostConfig, callback) {
 				authForm = null;
 			}
 
-			if(!data.upload) {
-				$.err({
-					title: "Configuration file not found",
-					delay: -1
-				});
-				return;
-			}
-
 			if(data.if_list) {
 				data.if_list.sort();
 				var ifList = [];
